@@ -5,6 +5,7 @@
 #include <string>
 #include <vector>
 #include <map>
+#include <set>
 
 #include <cpp/poppler-document.h>
 #include <cpp/poppler-page.h>
@@ -12,9 +13,37 @@
 
 // poppler example text extraction code:  https://github.com/jeroen/popplertest/blob/master/encoding.cpp
 
-// create HTML index, with links to each first letter, and links for each word that opens PDFs to the right page
-// For example, this HTML tag opens page 4 of a PDF file named myfile.pdf:
-// <A HREF="http://www.example.com/myfile.pdf#page=4">
+std::set<std::string> commonWords = 
+{
+	"ABLE ", "ABOUT ", "ADORABLE", "ADVENTUROUS", "AFTER ", "AGGRESSIVE", "AGREEABLE", "ALERT", "ALIVE", "ALL",
+	"AMUSED", "AND", "ANGRY", "ANNOYED", "ANNOYING", "ANXIOUS", "ARROGANT", "ASHAMED", "ATTRACTIVE", "AVERAGE",
+	"AWFUL", "BAD", "BAD ", "BEAUTIFUL", "BETTER", "BEWILDERED", "BIG ", "BLACK", "BLOODY", "BLUE",
+	"BLUEEYED", "BLUSHING", "BORED", "BRAINY", "BRAVE", "BREAKABLE", "BRIGHT", "BUSY", "BUT", "CALM",
+	"CAREFUL", "CAUTIOUS", "CHARMING", "CHEERFUL", "CLEAN", "CLEAR", "CLEVER", "CLOUDY", "CLUMSY", "COLORFUL",
+	"COMBATIVE", "COMFORTABLE", "CONCERNED", "CONDEMNED", "CONFUSED", "COOPERATIVE", "COURAGEOUS", "CRAZY", "CREEPY", "CROWDED",
+	"CRUEL", "CURIOUS", "CUTE", "DANGEROUS", "DARK", "DEAD", "DEFEATED", "DEFIANT", "DELIGHTFUL", "DEPRESSED",
+	"DETERMINED", "DIFFERENT", "DIFFERENT ", "DIFFICULT", "DISGUSTED", "DISTINCT", "DISTURBED", "DIZZY", "DOUBTFUL", "DRAB",
+	"DULL", "EAGER", "EARLY ", "EASY", "ELATED", "ELEGANT", "EMBARRASSED", "ENCHANTING", "ENCOURAGING", "ENERGETIC",
+	"ENTHUSIASTIC", "ENVIOUS", "EVIL", "EXCITED", "EXPENSIVE", "EXUBERANT", "FAIR", "FAITHFUL", "FAMOUS", "FANCY",
+	"FANTASTIC", "FEW ", "FIERCE", "FILTHY", "FINE", "FIRST ", "FOOLISH", "FOR ", "FRAGILE", "FRAIL",
+	"FRANTIC", "FRIENDLY", "FRIGHTENED", "FROM ", "FUNNY", "GENTLE", "GIFTED", "GLAMOROUS", "GLEAMING", "GLORIOUS",
+	"GOOD", "GOOD ", "GORGEOUS", "GRACEFUL", "GREAT ", "GRIEVING", "GROTESQUE", "GRUMPY", "HANDSOME", "HAPPY",
+	"HEALTHY", "HELPFUL", "HELPLESS", "HER", "HIGH ", "HILARIOUS", "HIS", "HOMELESS", "HOMELY", "HORRIBLE",
+	"HUNGRY", "HURT", "ILL", "IMPORTANT", "IMPORTANT ", "IMPOSSIBLE", "INEXPENSIVE", "INNOCENT", "INQUISITIVE", "INTO ",
+	"ITCHY", "JEALOUS", "JITTERY", "JOLLY", "JOYOUS", "KIND", "LARGE ", "LAST ", "LAZY", "LIGHT",
+	"LITTLE ", "LIVELY", "LONELY", "LONG", "LONG ", "LOVELY", "LUCKY", "MAGNIFICENT", "MISTY", "MODERN",
+	"MOTIONLESS", "MUDDY", "MUSHY", "MYSTERIOUS", "NASTY", "NAUGHTY", "NERVOUS", "NEW ", "NEXT ", "NICE",
+	"NOT", "NUTTY", "OBEDIENT", "OBNOXIOUS", "ODD", "OLD ", "OLDFASHIONED", "ONE", "OPEN", "OTHER ",
+	"OUTRAGEOUS", "OUTSTANDING", "OVER ", "OWN ", "PANICKY", "PERFECT", "PLAIN", "PLEASANT", "POISED", "POOR",
+	"POWERFUL", "PRECIOUS", "PRICKLY", "PROUD", "PUBLIC ", "PUTRID", "PUZZLED", "QUAINT", "REAL", "RELIEVED",
+	"REPULSIVE", "RICH", "RIGHT ", "SAME ", "SCARY", "SELFISH", "SHE", "SHINY", "SHY", "SILLY",
+	"SLEEPY", "SMALL ", "SMILING", "SMOGGY", "SORE", "SPARKLING", "SPLENDID", "SPOTLESS", "STORMY", "STRANGE",
+	"STUPID", "SUCCESSFUL", "SUPER", "TALENTED", "TAME", "TASTY", "TENDER", "TENSE", "TERRIBLE", "THANKFUL",
+	"THAT", "THE", "THEIR ", "THERE", "THEY", "THIS", "THOUGHTFUL", "THOUGHTLESS", "TIRED", "TOUGH",
+	"TROUBLED", "UGLIEST", "UGLY", "UNINTERESTED", "UNSIGHTLY", "UNUSUAL", "UPSET", "UPTIGHT", "VAST", "VICTORIOUS",
+	"VIVACIOUS", "WANDERING", "WEARY", "WICKED", "WIDEEYED", "WILD", "WILL", "WITH ", "WITTY", "WORRIED",
+	"WORRISOME", "WOULD", "WRONG", "YOU", "YOUNG ", "ZANY", "ZEALOUS"
+};
 
 struct DocumentText
 {
@@ -158,6 +187,9 @@ public:
 			else if(word[i] >= '0' && word[i] <= '9') clean += word[i];
 		}
 		if(clean.length() <= 2) return "";
+		
+		if(commonWords.end() != commonWords.find(clean)) return "";
+
 		return clean;
 	}
 
