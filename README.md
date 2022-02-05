@@ -5,7 +5,7 @@ This project uses the poppler library (https://gitlab.freedesktop.org/poppler/po
 
 Build the project, then generate the index file like this:
 
-$ ./IndexPDF PDFs/*.pdf > Index.html
+$ ./IndexPDF PDFs/*.pdf
 
 Then you can open the Index.html file in a browser, jump to each inital letter or number, and search for terms found in the PDFs.
 
