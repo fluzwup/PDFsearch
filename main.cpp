@@ -419,7 +419,7 @@ int main(int argc, char** argv)
 	}
 	index.PurgeWords();
 
-	PrintIndex("index.html", index);
+	PrintIndex("Index.html", index);
 
 	return 0;
 }
