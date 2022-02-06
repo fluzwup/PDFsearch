@@ -290,7 +290,7 @@ public:
 		return wordLocations.size();
 	};
 
-	bool AddOcurrence(const char *word, const char *filename, unsigned int page, unsigned int line)
+	bool AddOccurrence(const char *word, const char *filename, unsigned int page, unsigned int line)
 	{
 		// clean word
 		std::string clean = CleanWord(word);
@@ -319,18 +319,34 @@ bool AddToIndex(DocumentText &doctext, Index &index)
 			for(std::string &word : linetxt)
 			{
 				//printf("%s ", word.c_str());
-				index.AddOcurrence(word.c_str(), doctext.filename.c_str(), pageindex, lineindex);
+				index.AddOccurrence(word.c_str(), doctext.filename.c_str(), pageindex, lineindex);
 			}
 		}
 	}
 	return true;
 }
 
-void PrintIndexEntry(const char *filename, const char *word, std::vector<WordLocations> &vwl)
+// if file pointer is not null, close out page first
+// if filename is not null, open up new page, return open file pointer in fp
+void NewFirstCharacter(FILE **fp, const char *filename, char character)
 {
-	FILE *fp = fopen(filename, "w");
+	if(*fp != NULL)
+	{
+		fprintf(*fp, "\n</html></body>\n");
+		fclose(*fp);
+		*fp = NULL;
+	}
 
-	fprintf(fp, "<html><body>\n<title>%s</title><h1>%s</h1>\n", word, word);
+	if(filename != NULL)
+	{
+		*fp = fopen(filename, "w");
+		fprintf(*fp, "<html><body>\n<title>%c</title><h1>%c</h1>\n", character, character);
+	}
+}
+
+void PrintIndexEntry(FILE *fp, const char *word, std::vector<WordLocations> &vwl)
+{
+	fprintf(fp, "<p id=\"%s\"><h2>%s</h2></p>\n", word, word); 
 
 	size_t lastpage = 0;
 	std::string lastfile;
@@ -345,26 +361,25 @@ void PrintIndexEntry(const char *filename, const char *word, std::vector<WordLoc
 		if(wl.page != lastpage)
 		{
 			lastpage = wl.page;
-			fprintf(fp, "  <A HREF=\"%s#page=%i\">%i</A> ", wl.filename.c_str(), wl.page, wl.page);
+			fprintf(fp, "  <A HREF=\"%s#page=%i\">%i</A>, ", wl.filename.c_str(), wl.page, wl.page);
 		}
 	}
 
-	fprintf(fp, "\n</html></body>\n");
-	fclose(fp);
 }
 
 void PrintIndex(const char *filename, Index &index)
 {
-	FILE *fp = fopen(filename, "w");
+	FILE *fpLeaf = NULL;
+	FILE *fpTop = fopen(filename, "w");
 
 	char lastchar = 0;
-	fprintf(fp, "<html><body>\n");
+	fprintf(fpTop, "<html><body>\n");
 	for(int i = 0; i < 10; ++i)
-		fprintf(fp, "<A HREF=\"#%i\">%i</A> ", i, i);
-	fprintf(fp, "\n");
+		fprintf(fpTop, "<A HREF=\"#%i\">%i</A> ", i, i);
+	fprintf(fpTop, "\n");
 	for(int i = 'A'; i <= 'Z'; ++i)
-		fprintf(fp, "<A HREF=\"#%c\">%c</A> ", i, i);
-	fprintf(fp, "\n");
+		fprintf(fpTop, "<A HREF=\"#%c\">%c</A> ", i, i);
+	fprintf(fpTop, "\n");
 
 	bool firstLine = true;
 	for(std::pair<std::string, std::vector<WordLocations> > wll : index.wordLocations)
@@ -374,24 +389,34 @@ void PrintIndex(const char *filename, Index &index)
 		{
 			// new first character, set up link from top index
 			lastchar = wll.first[0];
-			if(!firstLine) fprintf(fp, "<A HREF=\"#top\">Top</A><br>\n");
+			if(!firstLine) fprintf(fpTop, "<A HREF=\"#top\">Top</A><br>\n");
 
-			fprintf(fp, "<p id=\"%c\"><A HREF=\"%s\">%s</A>: %li locations</p>\n", 
-					lastchar, (wll.first + ".html").c_str(), wll.first.c_str(), wll.second.size());
+			fprintf(fpTop, "<p id=\"%c\">&bull;<A HREF=\"%s#%s\">%s</A>: %li locations</p>\n", 
+					lastchar, 
+					(wll.first.substr(0, 1) + ".html").c_str(), wll.first.c_str(), 
+					wll.first.c_str(), wll.second.size());
+
+			// open up new page for individual links
+			std::string filename = wll.first.substr(0, 1) + ".html";
+			NewFirstCharacter(&fpLeaf, filename.c_str(), wll.first[0]);
 		}
 		else
 		{
-			fprintf(fp, "<p><A HREF=\"%s\">%s</A>: %li locations</p>\n", 
-					(wll.first + ".html").c_str(), wll.first.c_str(), wll.second.size());
+			fprintf(fpTop, "<p>&bull;<A HREF=\"%s#%s\">%s</A>: %li locations</p>\n", 
+					(wll.first.substr(0, 1) + ".html").c_str(), wll.first.c_str(),
+					wll.first.c_str(), wll.second.size());
 		}
 
 		// create page with all the PDF links
-		PrintIndexEntry((wll.first + ".html").c_str(), wll.first.c_str(), wll.second);
+		PrintIndexEntry(fpLeaf, wll.first.c_str(), wll.second);
 
 		firstLine = false;
 	}
-	fprintf(fp, "</html></body>\n");
-	fclose(fp);
+	// close out leaf page
+	NewFirstCharacter(&fpLeaf, NULL, ' ');
+
+	fprintf(fpTop, "</html></body>\n");
+	fclose(fpTop);
 }
 
 int main(int argc, char** argv)
