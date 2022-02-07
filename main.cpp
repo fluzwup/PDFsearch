@@ -148,15 +148,17 @@ bool ExtractPDFText(const std::string &filename, DocumentText &doctext)
 class WordLocations
 {
 public:
-	WordLocations(const char *f, unsigned int p, unsigned int l)
+	WordLocations(unsigned int f, unsigned int p, unsigned int l)
 	{
 		filename = f;
 		page = p;
 		line = l;
 	};
-	std::string filename;
-	unsigned int page;
-	unsigned int line;
+	unsigned int filename;	// index of PDF file containing the word`
+	unsigned int page;		// page of PDF file where word was found
+	unsigned int line;		// line OF DOCUMENT (not page) where word was found
+	// filename#page=N will link to the correct page of the PDF file
+	// the line number can be used to search the document data files for words in proximity to one another
 };
 
 // assume all caps by this point, include hex numbers
@@ -177,12 +179,14 @@ bool isNumeric(const std::string &s)
 class Index
 {
 public:
+	// list of documents indexed
+	std::vector<std::string> documents;
 	// identifier is the word in question, cleaned
 	std::map<std::string, std::vector<WordLocations> > wordLocations;
+
 	std::string filename;
 	bool dirty;
 	bool writeIfDirty;
-	size_t documentsIndexed;
 	size_t pagesIndexed;
 	std::set<std::string> commonWords;
 
@@ -191,7 +195,6 @@ public:
 	{
 		dirty = false;
 		writeIfDirty = true;
-		documentsIndexed = 0;
 		pagesIndexed = 0;
 		commonWords = commonWordsInitialSet;
 	};
@@ -212,15 +215,48 @@ public:
 		fclose(fp);
 		return true;
 	};
+
 	bool WriteToFile(const char *filename)
 	{
-		return false;
 		FILE *fp = fopen(filename, "w");
 		if(fp == NULL) return false;
 
 		// print common word list, comma separated on a single line
-		// IndexTerm1: "document 1 name.pdf":p1,p2,p3;"document 2 name.pdf":p1,p2,p3
-		// IndexTerm2: "document 1 name.pdf":p1,p2,p3;"document 2 name.pdf":p1,p2,p3
+		for(std::string w : commonWords)
+		{
+			fprintf(fp, "%s,", w.c_str());
+		}
+		fprintf(fp, "\n");
+		
+		// print document name list, comma separated, quoted
+		for(std::string d : documents)
+		{
+			fprintf(fp, "%s,", d.c_str());
+		}
+		fprintf(fp, "\n");
+
+		// now print each word, followed by the locations
+		for(std::pair<std::string, std::vector<WordLocations> > pwl : wordLocations)
+		{
+			// print word
+			fprintf(fp, "%s:", pwl.first.c_str());
+
+			// track current document
+			unsigned int currentPDF;
+			for(WordLocations wl : pwl.second)
+			{
+				// print document name if we switched
+				if(wl.filename != currentPDF)
+				{
+					currentPDF = wl.filename;
+					fprintf(fp, "DOC%i:", currentPDF);
+				}
+				// print page.line; line may be used later for proximity search
+				fprintf(fp, "%i.%i,", wl.page, wl.line);
+			}
+			// end line
+			fprintf(fp, "\n");
+		}
 
 		fclose(fp);
 		return true;
@@ -236,25 +272,52 @@ public:
 	};
 	
 	// discard really short words and numbers, convert to upper case, filter out anything
-	// but alphanumerics
+	// but alphanumerics and select punctuation
 	std::string CleanWord(const char *word)
 	{
 		std::string clean;
 		size_t len = strlen(word);
 		
 		clean.reserve(len);
+		int hasAlpha = 0;
+		int hasNumeric = 0;
 		for(size_t i = 0; i < len; ++i)
 		{
-			if(word[i] >= 'a' && word[i] <= 'z') clean += word[i] + ('A' - 'a');
-			else if(word[i] >= 'A' && word[i] <= 'Z') clean += word[i];
-			else if(word[i] >= '0' && word[i] <= '9') clean += word[i];
+			if(word[i] >= 'a' && word[i] <= 'z') 
+			{
+				++hasAlpha;
+				clean += word[i] + ('A' - 'a');
+			}
+			else if(word[i] >= 'A' && word[i] <= 'Z') 
+			{
+				++hasAlpha;
+				clean += word[i];
+			}
+			// only keep numbers if they are preceeded by a letter
+			else if((word[i] >= '0' && word[i] <= '9') && !clean.empty())
+			{
+				++hasNumeric;
+				clean += word[i];
+			}
+			// only keep . and - if they are not the first character
+			else if((word[i] == '-' || word[i] == '.') && !clean.empty()) 
+			{
+				clean += word[i];
+			}
 		}
 		if(clean.length() < 2) return "";
+		if(!hasAlpha && !hasNumeric) return "";
+
+		// make sure we don't end with a symbol
+		while(clean.back() == '.' || clean.back() == '-') clean.pop_back();
 
 		// filter out numeric values under 1000 and over 999,999,999
-		if(isNumeric(clean) && (clean.size() < 4 || clean.size() >= 10))
-			return "";
+		if(!hasAlpha && hasNumeric)
+		{
+			if(clean.length() < 4 || clean.length() >= 10) return "";
+		}
 		
+		// if word is too common to index, reject it
 		if(commonWords.end() != commonWords.find(clean)) return "";
 
 		return clean;
@@ -275,7 +338,7 @@ public:
 				commonWords.insert(it->first);
 				it = wordLocations.erase(it);
 			}
-			else if((isNumeric(it->first) && it->second.size() < documentsIndexed * 2)) 
+			else if((isNumeric(it->first) && it->second.size() < documents.size() * 2)) 
 			{ 	// a number found in too few locations
 				it = wordLocations.erase(it);
 			}
@@ -290,7 +353,7 @@ public:
 		return wordLocations.size();
 	};
 
-	bool AddOccurrence(const char *word, const char *filename, unsigned int page, unsigned int line)
+	bool AddOccurrence(const char *word, unsigned int fileIndex, unsigned int page, unsigned int line)
 	{
 		// clean word
 		std::string clean = CleanWord(word);
@@ -298,126 +361,127 @@ public:
 		if(clean.empty()) return false;
 
 		// add new file/page/line to list
-		wordLocations[clean].push_back(WordLocations(filename, page, line));
+		wordLocations[clean].push_back(WordLocations(fileIndex, page, line));
 		return true;
 	};
 
-};
-
-bool AddToIndex(DocumentText &doctext, Index &index)
-{
-	unsigned int pageindex = 0;
-	unsigned int lineindex = 0;
-	++index.documentsIndexed;
-	for(std::vector< std::vector< std::string > > &pgtxt : doctext.text)
+	bool AddToIndex(DocumentText &doctext)
 	{
-		++index.pagesIndexed;
-		++pageindex;
-		for(std::vector<std::string> &linetxt : pgtxt)
+		unsigned int pageindex = 0;
+		unsigned int lineindex = 0;
+
+		documents.push_back(doctext.filename);
+		unsigned int docindex = documents.size() - 1;
+
+		for(std::vector< std::vector< std::string > > &pgtxt : doctext.text)
 		{
-			++lineindex;
-			for(std::string &word : linetxt)
+			++pagesIndexed;
+			++pageindex;
+			for(std::vector<std::string> &linetxt : pgtxt)
 			{
-				//printf("%s ", word.c_str());
-				index.AddOccurrence(word.c_str(), doctext.filename.c_str(), pageindex, lineindex);
+				++lineindex;
+				for(std::string &word : linetxt)
+				{
+					//printf("%s ", word.c_str());
+					AddOccurrence(word.c_str(), docindex, pageindex, lineindex);
+				}
 			}
 		}
-	}
-	return true;
-}
+		return true;
+	};
 
-// if file pointer is not null, close out page first
-// if filename is not null, open up new page, return open file pointer in fp
-void NewFirstCharacter(FILE **fp, const char *filename, char character)
-{
-	if(*fp != NULL)
+	// if file pointer is not null, close out page first
+	// if filename is not null, open up new page, return open file pointer in fp
+	void NewFirstCharacter(FILE **fp, const char *filename, char character)
 	{
-		fprintf(*fp, "\n</html></body>\n");
-		fclose(*fp);
-		*fp = NULL;
-	}
-
-	if(filename != NULL)
-	{
-		*fp = fopen(filename, "w");
-		fprintf(*fp, "<html><body>\n<title>%c</title><h1>%c</h1>\n", character, character);
-	}
-}
-
-void PrintIndexEntry(FILE *fp, const char *word, std::vector<WordLocations> &vwl)
-{
-	fprintf(fp, "<p id=\"%s\"><h2>%s</h2></p>\n", word, word); 
-
-	size_t lastpage = 0;
-	std::string lastfile;
-	for(WordLocations wl : vwl)
-	{
-		if(wl.filename != lastfile)
+		if(*fp != NULL)
 		{
-			lastfile = wl.filename;
-			lastpage = 0;
-			fprintf(fp, "<br>\n  <B><A HREF=\"%s\">%s</A></B> : ", wl.filename.c_str(), wl.filename.c_str());
-		}
-		if(wl.page != lastpage)
-		{
-			lastpage = wl.page;
-			fprintf(fp, "  <A HREF=\"%s#page=%i\">%i</A>, ", wl.filename.c_str(), wl.page, wl.page);
-		}
-	}
-
-}
-
-void PrintIndex(const char *filename, Index &index)
-{
-	FILE *fpLeaf = NULL;
-	FILE *fpTop = fopen(filename, "w");
-
-	char lastchar = 0;
-	fprintf(fpTop, "<html><body>\n");
-	for(int i = 0; i < 10; ++i)
-		fprintf(fpTop, "<A HREF=\"#%i\">%i</A> ", i, i);
-	fprintf(fpTop, "\n");
-	for(int i = 'A'; i <= 'Z'; ++i)
-		fprintf(fpTop, "<A HREF=\"#%c\">%c</A> ", i, i);
-	fprintf(fpTop, "\n");
-
-	bool firstLine = true;
-	for(std::pair<std::string, std::vector<WordLocations> > wll : index.wordLocations)
-	{
-		// print keyword and link to page of links to that keyword in the PDFs
-		if(wll.first[0] != lastchar)
-		{
-			// new first character, set up link from top index
-			lastchar = wll.first[0];
-			if(!firstLine) fprintf(fpTop, "<A HREF=\"#top\">Top</A><br>\n");
-
-			fprintf(fpTop, "<p id=\"%c\">&bull;<A HREF=\"%s#%s\">%s</A>: %li locations</p>\n", 
-					lastchar, 
-					(wll.first.substr(0, 1) + ".html").c_str(), wll.first.c_str(), 
-					wll.first.c_str(), wll.second.size());
-
-			// open up new page for individual links
-			std::string filename = wll.first.substr(0, 1) + ".html";
-			NewFirstCharacter(&fpLeaf, filename.c_str(), wll.first[0]);
-		}
-		else
-		{
-			fprintf(fpTop, "<p>&bull;<A HREF=\"%s#%s\">%s</A>: %li locations</p>\n", 
-					(wll.first.substr(0, 1) + ".html").c_str(), wll.first.c_str(),
-					wll.first.c_str(), wll.second.size());
+			fprintf(*fp, "\n</html></body>\n");
+			fclose(*fp);
+			*fp = NULL;
 		}
 
-		// create page with all the PDF links
-		PrintIndexEntry(fpLeaf, wll.first.c_str(), wll.second);
+		if(filename != NULL)
+		{
+			*fp = fopen(filename, "w");
+			fprintf(*fp, "<html><body>\n<title>%c</title><h1>%c</h1>\n", character, character);
+		}
+	};
 
-		firstLine = false;
-	}
-	// close out leaf page
-	NewFirstCharacter(&fpLeaf, NULL, ' ');
+	void PrintIndexEntry(FILE *fp, const char *word, std::vector<WordLocations> &vwl)
+	{
+		fprintf(fp, "<p id=\"%s\"><h2>%s</h2></p>\n", word, word); 
 
-	fprintf(fpTop, "</html></body>\n");
-	fclose(fpTop);
-}
+		size_t lastpage = 0;
+		unsigned int lastfile;
+		for(WordLocations wl : vwl)
+		{
+			if(wl.filename != lastfile)
+			{
+				lastfile = wl.filename;
+				lastpage = 0;
+				fprintf(fp, "<br>\n  <B><A HREF=\"%s\">%s</A></B> : ", 
+						documents[wl.filename].c_str(), documents[wl.filename].c_str());
+			}
+			if(wl.page != lastpage)
+			{
+				lastpage = wl.page;
+				fprintf(fp, "  <A HREF=\"%s#page=%i\">%i</A>, ", documents[wl.filename].c_str(), wl.page, wl.page);
+			}
+		}
+	};
+
+	void PrintIndex(const char *filename)
+	{
+		FILE *fpLeaf = NULL;
+		FILE *fpTop = fopen(filename, "w");
+
+		char lastchar = 0;
+		fprintf(fpTop, "<html><body>\n");
+		for(int i = 0; i < 10; ++i)
+			fprintf(fpTop, "<A HREF=\"#%i\">%i</A> ", i, i);
+		fprintf(fpTop, "\n");
+		for(int i = 'A'; i <= 'Z'; ++i)
+			fprintf(fpTop, "<A HREF=\"#%c\">%c</A> ", i, i);
+		fprintf(fpTop, "\n");
+
+		bool firstLine = true;
+		for(std::pair<std::string, std::vector<WordLocations> > wll : wordLocations)
+		{
+			// print keyword and link to page of links to that keyword in the PDFs
+			if(wll.first[0] != lastchar)
+			{
+				// new first character, set up link from top index
+				lastchar = wll.first[0];
+				if(!firstLine) fprintf(fpTop, "<A HREF=\"#top\">Top</A><br>\n");
+
+				fprintf(fpTop, "<p id=\"%c\">&bull;<A HREF=\"%s#%s\">%s</A>: %li locations</p>\n", 
+						lastchar, 
+						(wll.first.substr(0, 1) + ".html").c_str(), wll.first.c_str(), 
+						wll.first.c_str(), wll.second.size());
+
+				// open up new page for individual links
+				std::string filename = wll.first.substr(0, 1) + ".html";
+				NewFirstCharacter(&fpLeaf, filename.c_str(), wll.first[0]);
+			}
+			else
+			{
+				fprintf(fpTop, "<p>&bull;<A HREF=\"%s#%s\">%s</A>: %li locations</p>\n", 
+						(wll.first.substr(0, 1) + ".html").c_str(), wll.first.c_str(),
+						wll.first.c_str(), wll.second.size());
+			}
+
+			// create page with all the PDF links
+			PrintIndexEntry(fpLeaf, wll.first.c_str(), wll.second);
+			firstLine = false;
+		}
+		// close out leaf page
+		NewFirstCharacter(&fpLeaf, NULL, ' ');
+
+		fprintf(fpTop, "</html></body>\n");
+		fclose(fpTop);
+	};
+};
 
 int main(int argc, char** argv)
 {
@@ -437,14 +501,18 @@ int main(int argc, char** argv)
 		DocumentText doctext;
 		bool bret = ExtractPDFText(filename, doctext);
 
-		if(bret) bret = AddToIndex(doctext, index);
+		if(bret) bret = index.AddToIndex(doctext);
 
 		// if we successfully added a document, then increment the counter
 		if(bret) ++documentCount;
 	}
 	index.PurgeWords();
 
-	PrintIndex("Index.html", index);
+	index.PrintIndex("Index.html");
+
+	index.WriteToFile("Index.dat");
+
+	system("bzip2 Index.dat");
 
 	return 0;
 }
