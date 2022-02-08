@@ -10,4 +10,4 @@ $ ./IndexPDF PDFs/*.pdf
 Then you can open the Index.html file in a browser, jump to each inital letter or number, and search for terms found in the PDFs.
 
 Todo:  
-  Instead of one links page per term, make one links page per initial character, with bold headings for each term, and make Index.html link into each file.
+  Work on reducing the number of index terms; still too much noise.
